@@ -11,52 +11,52 @@ import time
 from PIL import Image, ImageDraw, ImageFont
 import piexif
 
-# --- 1. CẤU HÌNH GIAO DIỆN & TÀNG HÌNH STREAMLIT ---
-st.set_page_config(page_title="Công cụ SEO Hình Ảnh PRO", page_icon="🚀", layout="centered")
-
-hide_st_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
-            </style>
-            """
-st.markdown(hide_st_style, unsafe_allow_html=True)
-
-# --- 2. CẤU HÌNH BẢO MẬT (MAGIC LINK TỪ APP BĐS) ---
-SECRET_KEY = "FaztBDS_Tool_2026_!@#"
-VALID_TIME = 600 # Link chỉ sống trong 600 giây (10 phút)
-
-def check_access():
-    """Kiểm tra xem link có mã token hợp lệ và còn hạn không"""
-    ts = st.query_params.get("ts")
-    sign = st.query_params.get("sign")
-
-    if not ts or not sign:
-        return False, "⚠️ Vui lòng truy cập công cụ này từ bên trong App BĐS của chúng tôi."
-
+def check_security():
+    # 1. Lấy ts và sign từ URL (Dùng cho Streamlit bản mới)
     try:
-        # Kiểm tra thời gian (chống lấy link cũ xài lại)
-        current_time = int(time.time())
-        link_time = int(ts)
-        if current_time - link_time > VALID_TIME:
-            return False, "⏳ Link truy cập đã hết hạn. Vui lòng quay lại App BĐS để mở lại công cụ."
-
-        # Kiểm tra chữ ký (chống giả mạo link)
-        valid_sign = hashlib.md5((SECRET_KEY + str(link_time)).encode()).hexdigest()
-        if sign == valid_sign:
-            return True, "Hợp lệ"
-        else:
-            return False, "🚫 Sai mã xác thực. Truy cập bị từ chối."
+        ts = st.query_params.get("ts")
+        sign = st.query_params.get("sign")
     except:
-        return False, "⚠️ Link truy cập không hợp lệ."
+        # Fallback cho Streamlit bản cũ
+        params = st.experimental_get_query_params()
+        ts = params.get("ts", [None])[0]
+        sign = params.get("sign", [None])[0]
 
-# ⛔ THỰC THI KIỂM TRA BẢO MẬT NGAY TẠI ĐÂY
-is_valid, message = check_access()
+    # Nếu không có mã thì chặn
+    if not ts or not sign:
+        st.error("🚫 Không có mã truy cập. Vui lòng mở công cụ từ bên trong App BĐS.")
+        st.stop()
 
-if not is_valid:
-    st.error(message)
-    st.stop() # Nếu không hợp lệ -> Khóa app, không cho chạy phần giao diện bên dưới
+    # 2. KIỂM TRA CHỮ KÝ (Phải khớp 100% thuật toán SHA-256 với bên App)
+    SECRET_KEY = "FaztBDS_Tool_2026_!@#"
+    raw_string = SECRET_KEY + str(ts)
+    
+    # Băm ra mã SHA-256
+    expected_sign = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
+
+    # So sánh mã (Nếu sai thì chặn)
+    if sign != expected_sign:
+        st.error("🚫 Sai mã xác thực. Truy cập bị từ chối.")
+        # Code debug (Bật lên nếu muốn xem 2 mã lệch nhau chỗ nào)
+        # st.write(f"Mã App gửi: {sign}")
+        # st.write(f"Mã Python tính: {expected_sign}")
+        st.stop()
+
+    # 3. KIỂM TRA THỜI GIAN (Nâng lên 24 giờ = 86400 giây)
+    try:
+        current_time = int(time.time())
+        ts_int = int(ts)
+        diff = abs(current_time - ts_int)
+        
+        if diff > 86400:
+            st.error(f"⏰ Link đã quá hạn 24 giờ. Vui lòng vào App bấm tạo lại link mới.")
+            st.stop()
+    except ValueError:
+        st.error("🚫 Mã thời gian không hợp lệ.")
+        st.stop()
+
+# Gọi hàm kiểm tra ngay đầu file app.py, trước khi render giao diện Tool
+check_security()
 
 # =====================================================================
 # TỪ ĐÂY TRỞ XUỐNG CHỈ HIỂN THỊ KHI KHÁCH VÀO TỪ APP BĐS (HỢP LỆ)

@@ -6,6 +6,8 @@ import io
 import zipfile
 import shutil
 import tempfile
+import hashlib
+import time
 from PIL import Image, ImageDraw, ImageFont
 import piexif
 
@@ -21,7 +23,46 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# --- 2. HÀM HỖ TRỢ XỬ LÝ ---
+# --- 2. CẤU HÌNH BẢO MẬT (MAGIC LINK TỪ APP BĐS) ---
+SECRET_KEY = "FaztBDS_Tool_2026_!@#"
+VALID_TIME = 600 # Link chỉ sống trong 600 giây (10 phút)
+
+def check_access():
+    """Kiểm tra xem link có mã token hợp lệ và còn hạn không"""
+    ts = st.query_params.get("ts")
+    sign = st.query_params.get("sign")
+
+    if not ts or not sign:
+        return False, "⚠️ Vui lòng truy cập công cụ này từ bên trong App BĐS của chúng tôi."
+
+    try:
+        # Kiểm tra thời gian (chống lấy link cũ xài lại)
+        current_time = int(time.time())
+        link_time = int(ts)
+        if current_time - link_time > VALID_TIME:
+            return False, "⏳ Link truy cập đã hết hạn. Vui lòng quay lại App BĐS để mở lại công cụ."
+
+        # Kiểm tra chữ ký (chống giả mạo link)
+        valid_sign = hashlib.md5((SECRET_KEY + str(link_time)).encode()).hexdigest()
+        if sign == valid_sign:
+            return True, "Hợp lệ"
+        else:
+            return False, "🚫 Sai mã xác thực. Truy cập bị từ chối."
+    except:
+        return False, "⚠️ Link truy cập không hợp lệ."
+
+# ⛔ THỰC THI KIỂM TRA BẢO MẬT NGAY TẠI ĐÂY
+is_valid, message = check_access()
+
+if not is_valid:
+    st.error(message)
+    st.stop() # Nếu không hợp lệ -> Khóa app, không cho chạy phần giao diện bên dưới
+
+# =====================================================================
+# TỪ ĐÂY TRỞ XUỐNG CHỈ HIỂN THỊ KHI KHÁCH VÀO TỪ APP BĐS (HỢP LỆ)
+# =====================================================================
+
+# --- 3. HÀM HỖ TRỢ XỬ LÝ ---
 def sanitize_filename(text):
     text = text.lower()
     s1 = u'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ'
@@ -48,13 +89,10 @@ def add_watermark_and_text(img, logo_file, text_to_draw, is_thumbnail=False):
         draw = ImageDraw.Draw(img)
         fontsize = int(img.height * 0.06) 
         try:
-            # Trên server mây có thể không có Arial, dùng font mặc định tạm
-            # Tốt nhất fen up kèm 1 file arial.ttf lên cùng thư mục code
             font = ImageFont.truetype("arial.ttf", fontsize)
         except:
             font = ImageFont.load_default()
 
-        # Dùng textbbox để tính toán
         bbox = draw.textbbox((0, 0), text_to_draw, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
@@ -69,7 +107,7 @@ def add_watermark_and_text(img, logo_file, text_to_draw, is_thumbnail=False):
     
     return img
 
-# --- 3. GIAO DIỆN CHÍNH ---
+# --- 4. GIAO DIỆN CHÍNH CỦA TOOL ---
 st.title("🚀 CÔNG CỤ TỐI ƯU SEO HÌNH ẢNH")
 st.write("Giải pháp chuẩn hóa hình ảnh hàng loạt. Quà tặng độc quyền từ hệ thống App BĐS của chúng tôi!")
 
@@ -94,23 +132,19 @@ with st.form("seo_form"):
 
     submit_button = st.form_submit_button("🚀 CHẠY XỬ LÝ (TỰ ĐỘNG NÉN ZIP)")
 
-# --- 4. LOGIC XỬ LÝ KHI BẤM NÚT ---
+# --- 5. LOGIC XỬ LÝ KHI BẤM NÚT ---
 if submit_button:
     if not uploaded_files:
-        st.error("⚠️ Fen chưa tải ảnh nào lên kìa!")
+        st.error("⚠️ Bạn chưa tải ảnh nào lên!")
     elif len(uploaded_files) > 10:
         st.warning("⚠️ Vượt quá giới hạn! Vui lòng chỉ tải tối đa 10 ảnh/lần.")
     elif not all([title, main_key, author, copyright_val]):
         st.error("⚠️ Điền thiếu thông tin SEO rồi (Tiêu đề, Từ khóa, Tác giả, Bản quyền).")
     else:
         with st.spinner('Đang dùng phép thuật xử lý ảnh... 🧙‍♂️'):
-            # Sắp xếp ảnh theo tên file (để lấy ảnh số 1 làm ảnh bìa)
             uploaded_files.sort(key=lambda x: x.name)
-            
-            # Xử lý từ khóa phụ
             pool = [k.strip() for k in tags_input.split(',')] if tags_input else []
             
-            # Tạo thư mục tạm trên Server
             temp_dir = tempfile.mkdtemp()
             folder_name = sanitize_filename(title)
             
@@ -118,11 +152,9 @@ if submit_button:
                 img = Image.open(file).convert('RGBA')
                 is_thumb = (i == 0)
                 
-                # Đóng Logo và Chữ
                 img = add_watermark_and_text(img, uploaded_logo, text_on_img, is_thumbnail=is_thumb)
                 img = img.convert("RGB")
 
-                # EXIF Metadata
                 random_tags = random.sample(pool, min(len(pool), 5)) if pool else []
                 t_set = ", ".join([main_key] + random_tags)
                 n_set = ", ".join(random_tags)
@@ -141,11 +173,9 @@ if submit_button:
                 except:
                     exif_bytes = b""
                     
-                # Lưu tạm vào thư mục temp
                 save_name = f"{folder_name}-{i+1}.jpg"
                 img.save(os.path.join(temp_dir, save_name), "JPEG", quality=90, exif=exif_bytes)
 
-            # NÉN FILE ZIP VÀO RAM (Không ghi ra đĩa cứng -> Siêu tốc độ, tự hủy)
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for root_dir, _, files in os.walk(temp_dir):
@@ -153,13 +183,11 @@ if submit_button:
                         file_path = os.path.join(root_dir, file)
                         zip_file.write(file_path, os.path.relpath(file_path, temp_dir))
             
-            # Xóa thư mục tạm (Sạch sẽ server)
             shutil.rmtree(temp_dir)
 
             st.success(f"🎉 Đã xử lý thành công {len(uploaded_files)} ảnh!")
             st.balloons()
 
-            # NÚT DOWNLOAD
             st.download_button(
                 label="📥 TẢI FILE ẢNH (ZIP) VỀ MÁY",
                 data=zip_buffer.getvalue(),

@@ -12,37 +12,27 @@ from PIL import Image, ImageDraw, ImageFont
 import piexif
 
 def check_security():
-    # 1. Lấy ts và sign từ URL (Dùng cho Streamlit bản mới)
+    # 1. Lấy ts và sign từ URL
     try:
         ts = st.query_params.get("ts")
         sign = st.query_params.get("sign")
     except:
-        # Fallback cho Streamlit bản cũ
         params = st.experimental_get_query_params()
         ts = params.get("ts", [None])[0]
         sign = params.get("sign", [None])[0]
 
-    # Nếu không có mã thì chặn
     if not ts or not sign:
         st.error("🚫 Không có mã truy cập. Vui lòng mở công cụ từ bên trong App BĐS.")
         st.stop()
 
-    # 2. KIỂM TRA CHỮ KÝ (Phải khớp 100% thuật toán SHA-256 với bên App)
     SECRET_KEY = "FaztBDS_Tool_2026_!@#"
     raw_string = SECRET_KEY + str(ts)
-    
-    # Băm ra mã SHA-256
     expected_sign = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
 
-    # So sánh mã (Nếu sai thì chặn)
     if sign != expected_sign:
         st.error("🚫 Sai mã xác thực. Truy cập bị từ chối.")
-        # Code debug (Bật lên nếu muốn xem 2 mã lệch nhau chỗ nào)
-        # st.write(f"Mã App gửi: {sign}")
-        # st.write(f"Mã Python tính: {expected_sign}")
         st.stop()
 
-    # 3. KIỂM TRA THỜI GIAN (Nâng lên 24 giờ = 86400 giây)
     try:
         current_time = int(time.time())
         ts_int = int(ts)
@@ -55,14 +45,12 @@ def check_security():
         st.error("🚫 Mã thời gian không hợp lệ.")
         st.stop()
 
-# Gọi hàm kiểm tra ngay đầu file app.py, trước khi render giao diện Tool
 check_security()
 
 # =====================================================================
 # TỪ ĐÂY TRỞ XUỐNG CHỈ HIỂN THỊ KHI KHÁCH VÀO TỪ APP BĐS (HỢP LỆ)
 # =====================================================================
 
-# --- 3. HÀM HỖ TRỢ XỬ LÝ ---
 def sanitize_filename(text):
     text = text.lower()
     s1 = u'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ'
@@ -119,11 +107,11 @@ with st.form("seo_form"):
     st.subheader("2. Thông tin SEO (Metadata)")
     col1, col2 = st.columns(2)
     with col1:
-        title = st.text_input("Tiêu đề bài viết (Title):")
-        author = st.text_input("Tác giả (Author):")
+        title = st.text_input("Tiêu đề bài viết (Title):", placeholder="VD: Bán nhà phố Lê Trọng Tấn")
+        author = st.text_input("Tác giả (Author):", placeholder="VD: NQT - Chuyên viên tư vấn")
     with col2:
-        main_key = st.text_input("Từ khóa chính (Main Keyword):")
-        copyright_val = st.text_input("Bản quyền (Copyright):")
+        main_key = st.text_input("Từ khóa chính (Main Keyword):", placeholder="VD: nha pho binh tan")
+        copyright_val = st.text_input("Bản quyền / SĐT (Copyright):", placeholder="VD: 0909.xxx.xxx")
         
     tags_input = st.text_area("Từ khóa phụ (Cách nhau bằng dấu phẩy - Dùng làm Tags):", placeholder="VD: mua ban nha dat, can ho cao cap, bat dong san quan 1...")
     
@@ -143,7 +131,7 @@ if submit_button:
     else:
         with st.spinner('Đang dùng phép thuật xử lý ảnh... 🧙‍♂️'):
             uploaded_files.sort(key=lambda x: x.name)
-            pool = [k.strip() for k in tags_input.split(',')] if tags_input else []
+            pool = [k.strip() for k in tags_input.split(',') if k.strip()] if tags_input else []
             
             temp_dir = tempfile.mkdtemp()
             folder_name = sanitize_filename(title)
@@ -155,17 +143,36 @@ if submit_button:
                 img = add_watermark_and_text(img, uploaded_logo, text_on_img, is_thumbnail=is_thumb)
                 img = img.convert("RGB")
 
-                random_tags = random.sample(pool, min(len(pool), 5)) if pool else []
-                t_set = ", ".join([main_key] + random_tags)
-                n_set = ", ".join(random_tags)
+                # ==========================================================
+                # 🔥 LÕI XỬ LÝ THUẬT TOÁN SEO MỚI CHỐNG SPAM GOOGLE
+                # ==========================================================
+                random_tags = random.sample(pool, min(len(pool), 6)) if pool else []
+                
+                # 1. TAGS: Phân tách bằng dấu chấm phẩy (;) theo chuẩn Windows
+                all_tags_list = [main_key] + random_tags
+                t_set = "; ".join(all_tags_list) + ";"
+                
+                # 2. COMMENTS: Trộn thành câu văn tự nhiên, có SĐT/Bản quyền
+                if random_tags:
+                    tags_str = ", ".join(random_tags)
+                    n_set = f"Thông tin chi tiết về {main_key}. Đặc điểm nổi bật: {tags_str}. Hình ảnh được cung cấp bởi {author}. Mọi nhu cầu vui lòng liên hệ: {copyright_val}."
+                else:
+                    n_set = f"Thông tin chi tiết về {main_key}. Hình ảnh được cung cấp bởi {author}. Mọi nhu cầu vui lòng liên hệ: {copyright_val}."
+                # ==========================================================
                 
                 exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
+                # Title & Subject
                 exif_dict["0th"][0x9c9b] = title.encode('utf-16le')
                 exif_dict["0th"][0x9c9f] = title.encode('utf-16le')
+                # Author
                 exif_dict["0th"][0x9c9d] = author.encode('utf-16le')
+                # Copyright
                 exif_dict["0th"][0x8298] = copyright_val.encode('utf-8')
+                # Tags (Keywords)
                 exif_dict["0th"][0x9c9e] = t_set.encode('utf-16le')
+                # Comments
                 exif_dict["0th"][0x9c9c] = n_set.encode('utf-16le')
+                # Rating (5 sao)
                 exif_dict["0th"][0x4746] = 5
 
                 try:
